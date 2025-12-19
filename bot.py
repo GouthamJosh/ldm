@@ -23,7 +23,6 @@ ARIA2_PORT = 6801
 HEALTH_PORT = int(os.getenv("PORT", 8000))
 ARIA2_SECRET = "gjxdml"
 
-
 # ================= CLEANUP =================
 def cleanup():
     if os.path.exists(DOWNLOAD_DIR):
@@ -42,7 +41,7 @@ aria2 = aria2p.API(
 )
 
 # ================= GLOBAL STATE =================
-ACTIVE = {} # Tracks GID (download) or msg.id (upload)
+ACTIVE = {}  # Tracks GID (download) or msg.id (upload)
 DOWNLOAD_IN_PROGRESS = False
 UPLOAD_IN_PROGRESS = False
 TOTAL_DOWNLOAD_TIME = 0
@@ -61,12 +60,11 @@ def time_tracker():
 # Start the time tracking thread
 threading.Thread(target=time_tracker, daemon=True).start()
 
-
 # ================= HELPERS =================
 def progress_bar(done, total, size=12):
     """Generates a 12-segment hexagonal progress bar string."""
-    FILLED = "⬢" # Filled hexagon
-    EMPTY = "⬡"  # Empty hexagon
+    FILLED = "⬢"  # Filled hexagon
+    EMPTY = "⬡"   # Empty hexagon
     
     if total == 0:
         return f"[{EMPTY * size}] 0.00%"
@@ -140,7 +138,6 @@ async def edit_message_async(msg, content, parse_mode):
         print(f"Error editing message: {edit_error}")
         return None
 
-
 @app.on_message(filters.command(["l", "leech"]))
 async def leech(_, m: Message):
     global DOWNLOAD_IN_PROGRESS, UPLOAD_IN_PROGRESS
@@ -169,7 +166,7 @@ async def leech(_, m: Message):
     # Store GID and cancel flag for download phase
     ACTIVE[gid] = {"cancel": False}
     
-    DOWNLOAD_IN_PROGRESS = True # Set download flag
+    DOWNLOAD_IN_PROGRESS = True  # Set download flag
 
     while not dl.is_complete:
         if ACTIVE[gid]["cancel"] or dl.is_removed or dl.has_failed:
@@ -208,7 +205,7 @@ async def leech(_, m: Message):
             except Exception as edit_error:
                 print(f"Error editing message: {edit_error}")
 
-        await asyncio.sleep(3) # Throttle edits to avoid FloodWait
+        await asyncio.sleep(3)  # Throttle edits to avoid FloodWait
 
     # Download finished, reset flag
     DOWNLOAD_IN_PROGRESS = False 
@@ -243,7 +240,7 @@ async def leech(_, m: Message):
                     # Store message ID, file path, and cancel flag for upload phase tracking
                     ACTIVE[msg.id] = {"cancel": False, "file_path": file_path, "name": dl.name}
                     
-                    UPLOAD_IN_PROGRESS = True # Set upload flag
+                    UPLOAD_IN_PROGRESS = True  # Set upload flag
                     
                     await app.send_document(
                         m.chat.id, 
@@ -264,7 +261,7 @@ async def leech(_, m: Message):
                         await edit_message_async(msg, f"❌ Upload failed: {str(e)}", parse_mode=None)
             
                 finally:
-                    UPLOAD_IN_PROGRESS = False # Reset upload flag
+                    UPLOAD_IN_PROGRESS = False  # Reset upload flag
                     # Clean up the entry from ACTIVE
                     ACTIVE.pop(msg.id, None) 
             
@@ -273,7 +270,6 @@ async def leech(_, m: Message):
     
     elif dl.has_failed:
         await edit_message_async(msg, f"❌ Download **{dl.name}** failed.\nReason: {dl.error_message}", parse_mode=PARSE_MODE)
-
 
 @app.on_message(filters.regex(r"^/c_"))
 async def cancel(_, m: Message):
@@ -340,31 +336,42 @@ def upload_progress(current, total, msg, start_time, name, parse_mode, loop):
     try:
         coro = edit_message_async(msg, new_content, parse_mode)
         asyncio.run_coroutine_threadsafe(coro, loop)
-        time.sleep(3) # Throttle edits to avoid FloodWait
+        time.sleep(3)  # Throttle edits to avoid FloodWait
     except:
         pass
 
 @app.on_message(filters.command("stats"))
 async def bot_stats(_, m: Message):
-    # This command uses os.popen to run system commands, which is environment dependent.
-    # It attempts to get CPU, RAM, and Uptime from standard Linux commands.
+    # This command uses subprocess to run system commands, which is more secure and reliable than os.popen.
     
     # Get system stats
-    cpu_percent = os.popen("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'").read().strip()
-    ram_usage = os.popen("free -m | awk 'NR==2{printf \"%.1f%%\", $3*100/$2 }'").read().strip()
+    try:
+        cpu_result = subprocess.run(["sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'"], capture_output=True, text=True, timeout=5)
+        cpu_percent = cpu_result.stdout.strip() if cpu_result.returncode == 0 else "N/A"
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        cpu_percent = "N/A"
+    
+    try:
+        ram_result = subprocess.run(["sh", "-c", "free -m | awk 'NR==2{printf \"%.1f%%\", $3*100/$2 }'"], capture_output=True, text=True, timeout=5)
+        ram_usage = ram_result.stdout.strip() if ram_result.returncode == 0 else "N/A"
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        ram_usage = "N/A"
     
     # Get total free space on the current filesystem
     try:
-        df_output = os.popen(f"df -h --output=size,avail,pcent {DOWNLOAD_DIR} | tail -n 1").read().strip().split()
-        if len(df_output) == 3:
-            total_disk = df_output[0]
-            free_disk = df_output[1]
-            disk_percent = df_output[2]
-            disk_info = f"F → {free_disk} of {total_disk} [{disk_percent}]"
+        df_result = subprocess.run(["df", "-h", "--output=size,avail,pcent", DOWNLOAD_DIR], capture_output=True, text=True, timeout=5)
+        if df_result.returncode == 0:
+            df_output = df_result.stdout.strip().split()
+            if len(df_output) >= 3:
+                total_disk = df_output[0]
+                free_disk = df_output[1]
+                disk_percent = df_output[2]
+                disk_info = f"F → {free_disk} of {total_disk} [{disk_percent}]"
+            else:
+                disk_info = "Disk info unavailable"
         else:
             disk_info = "Disk info unavailable"
-    except Exception as e:
-        print(f"Disk check failed: {e}")
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception):
         disk_info = "Disk info unavailable"
 
     # Get uptime
@@ -385,7 +392,6 @@ async def bot_stats(_, m: Message):
     )
     
     await m.reply_text(stats_text, parse_mode=enums.ParseMode.MARKDOWN)
-
 
 async def health(request):
     return web.Response(text="OK")
