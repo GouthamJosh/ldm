@@ -128,6 +128,28 @@ app = Client(
     workers=16
 )
 
+# start.py
+from pyrogram import filters, enums
+from pyrogram.types import Message
+
+@app.on_message(filters.command("start"))
+async def start(_, m):
+    PARSE_MODE = enums.ParseMode.MARKDOWN
+    user_name = m.from_user.first_name
+
+    start_message = (
+        f"👋 Hello, **{user_name}**!\n"
+        "I am a fast Aria2 Leech Bot designed to download files directly from URLs and upload them to Telegram.\n\n"
+        "**📚 How to Use Me:**\n"
+        "┠ To start a download: `/l <Direct_URL>`\n"
+        "┠ To check my status: `/stats`\n"
+        "┠ To cancel an active task (DL or UL): `/cancel<index>_<gid>`\n\n"
+        "**ℹ️ Supported URLs:**\n"
+        "┖ Direct file links (HTTP/HTTPS) and Torrent files.\n\n"
+        "🚀 Happy Leeching!"
+    )
+    await reply_message_async(m, start_message, parse_mode=PARSE_MODE)
+
 async def edit_message_async(msg, content, parse_mode, max_retries=3):
     """Edit message with robust FloodWait handling."""
     if msg.text == content:
