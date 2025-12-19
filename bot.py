@@ -127,31 +127,40 @@ app = Client(
     workers=14
 )
 
-async def edit_message_async(msg, content, parse_mode):
-    # Check if the content is the same as the current message text to avoid MESSAGE_NOT_MODIFIED error
+async def edit_message_async(msg, content, parse_mode, max_retries=3):
+    """Edit message with robust FloodWait handling."""
     if msg.text == content:
         return None  # Skip editing if content hasn't changed
     
-    try:
-        return await msg.edit(content, parse_mode=parse_mode)
-    except FloodWait as e:
-        print(f"Hit FloodWait in edit_message_async: Waiting for {e.value} seconds...")
-        await asyncio.sleep(e.value)
-        return await msg.edit(content, parse_mode=parse_mode)
-    except Exception as edit_error:
-        print(f"Error editing message: {edit_error}")
-        return None
+    retries = 0
+    while retries < max_retries:
+        try:
+            return await msg.edit(content, parse_mode=parse_mode)
+        except FloodWait as e:
+            print(f"Hit FloodWait in edit_message_async: Waiting for {e.value} seconds... (Retry {retries+1}/{max_retries})")
+            await asyncio.sleep(e.value)
+            retries += 1
+        except Exception as edit_error:
+            print(f"Error editing message: {edit_error}")
+            return None
+    print("Max retries exceeded for editing message.")
+    return None
 
-async def reply_message_async(m, text, parse_mode=None):
-    try:
-        return await m.reply(text, parse_mode=parse_mode)
-    except FloodWait as e:
-        print(f"Hit FloodWait in reply_message_async: Waiting for {e.value} seconds...")
-        await asyncio.sleep(e.value)
-        return await m.reply(text, parse_mode=parse_mode)
-    except Exception as reply_error:
-        print(f"Error replying message: {reply_error}")
-        return None
+async def reply_message_async(m, text, parse_mode=None, max_retries=3):
+    """Reply to message with robust FloodWait handling."""
+    retries = 0
+    while retries < max_retries:
+        try:
+            return await m.reply(text, parse_mode=parse_mode)
+        except FloodWait as e:
+            print(f"Hit FloodWait in reply_message_async: Waiting for {e.value} seconds... (Retry {retries+1}/{max_retries})")
+            await asyncio.sleep(e.value)
+            retries += 1
+        except Exception as reply_error:
+            print(f"Error replying message: {reply_error}")
+            return None
+    print("Max retries exceeded for replying message.")
+    return None
 
 async def upload_file(msg, file_path, name, file_size, loop):
     global UPLOAD_COUNT
@@ -171,7 +180,7 @@ async def upload_file(msg, file_path, name, file_size, loop):
     except Exception as e:
         print(f"Upload failed: {e}")
         
-        # --- FIX: Skip final error message if manual cancel occurred ---
+        # Skip final error message if manual cancel occurred
         if not ACTIVE.get(msg.id, {}).get("cancel", False):
             await edit_message_async(msg, f"❌ Upload failed: {str(e)}", parse_mode=None)
     
@@ -233,7 +242,7 @@ async def leech(_, m: Message):
 
         if not (dl.is_removed or dl.has_failed):
             try:
-                # --- DOWNLOAD MESSAGE TEMPLATE (USING GID FOR CANCEL) ---
+                # DOWNLOAD MESSAGE TEMPLATE (USING GID FOR CANCEL)
                 await edit_message_async(
                     msg,
                     f"**📥 DOWNLOADING: {dl.name}**\n"
@@ -245,7 +254,6 @@ async def leech(_, m: Message):
                     f"┖ /c_{gid} to cancel", 
                     parse_mode=PARSE_MODE
                 )
-                # --- END DOWNLOAD MESSAGE TEMPLATE ---
             except Exception as edit_error:
                 print(f"Error editing message: {edit_error}")
 
@@ -270,12 +278,11 @@ async def leech(_, m: Message):
             except:
                 await edit_message_async(msg, "❌ File corrupted or empty.", parse_mode=None)
             else:
-                # --- TRANSITION MESSAGE ---
+                # TRANSITION MESSAGE
                 await edit_message_async(msg, 
                                          f"✅ Download complete! Starting upload of **{dl.name}**\n"
                                          f"To cancel upload, use `/c_{msg.id}`", 
                                          parse_mode=PARSE_MODE)
-                # --- END TRANSITION MESSAGE ---
                 
                 # Store message ID, file path, and cancel flag for upload phase tracking
                 ACTIVE[msg.id] = {"cancel": False, "file_path": file_path, "name": dl.name, "last_edit": 0}
@@ -294,7 +301,7 @@ async def cancel(_, m: Message):
     # Check if task_id is a GID (Aria2 GIDs are 16 hexadecimal characters) AND is currently an active download
     if len(task_id) == 16 and task_id in ACTIVE and "file_path" not in ACTIVE.get(task_id, {}): 
         
-        # --- ARIA2 DOWNLOAD CANCELLATION (using GID) ---
+        # ARIA2 DOWNLOAD CANCELLATION (using GID)
         ACTIVE[task_id]["cancel"] = True
         try:
             dl = await asyncio.to_thread(aria2.get_download, task_id)
@@ -306,7 +313,7 @@ async def cancel(_, m: Message):
     # Check if task_id is a Message ID (purely numeric) AND is currently an active upload
     elif task_id.isdigit() and int(task_id) in ACTIVE and "file_path" in ACTIVE.get(int(task_id), {}):
         
-        # --- PYROGRAM UPLOAD CANCELLATION (using msg.id) ---
+        # PYROGRAM UPLOAD CANCELLATION (using msg.id)
         msg_id = int(task_id)
         task_info = ACTIVE[msg_id]
         
@@ -328,12 +335,11 @@ def upload_progress(current, total, msg, start_time, name, parse_mode, loop):
     if total == 0:
         return
     
-    # --- CANCELLATION CHECK (must raise an exception to stop pyrogram's upload) ---
+    # CANCELLATION CHECK (must raise an exception to stop pyrogram's upload)
     if ACTIVE.get(msg.id, {}).get("cancel", False):
         # This exception stops the Pyrogram thread immediately.
         raise Exception("Upload manually cancelled by user.")
-    # --- END CANCELLATION CHECK ---
-
+    
     # Throttle edits to every 3 seconds to avoid FloodWait and prevent blocking
     current_time = time.time()
     if current_time - ACTIVE.get(msg.id, {}).get("last_edit", 0) < 3:
@@ -343,7 +349,7 @@ def upload_progress(current, total, msg, start_time, name, parse_mode, loop):
     speed = current / elapsed if elapsed > 0 else 0
     progress_bar_output = progress_bar(current, total)
     
-    # --- UPLOAD MESSAGE TEMPLATE ---
+    # UPLOAD MESSAGE TEMPLATE
     new_content = (
         f"**📤 UPLOADING: {name}**\n"
         f"┟ `{progress_bar_output}`\n"
@@ -351,7 +357,6 @@ def upload_progress(current, total, msg, start_time, name, parse_mode, loop):
         f"┠ Speed → **{format_speed(speed)}**\n"
         f"┖ Cancel → /c_{msg.id}"
     )
-    # --- END UPLOAD MESSAGE TEMPLATE ---
     
     try:
         coro = edit_message_async(msg, new_content, parse_mode)
@@ -450,6 +455,3 @@ if __name__ == "__main__":
     print("-----------------------------------\n")
     # Store bot start time for uptime calculation
     app.start_time = time.time()
-    
-    threading.Thread(target=run_health, daemon=True).start()
-    app.run()
