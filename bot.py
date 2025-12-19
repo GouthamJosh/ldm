@@ -124,7 +124,7 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    workers=8
+    workers=14
 )
 
 async def edit_message_async(msg, content, parse_mode):
