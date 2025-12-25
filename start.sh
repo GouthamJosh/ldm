@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# --- Check for Aria2 installation ---
+if ! command -v aria2c &> /dev/null
+then
+    echo "❌ ERROR: aria2c command not found. Please install Aria2."
+    exit 1
+fi
+# ------------------------------------
+
 # Kill everything first
 echo "🔪 Killing all Aria2 and freeing ports..."
 pkill -9 -f aria2c || true
@@ -12,6 +20,8 @@ mkdir -p downloads
 
 # Start Aria2 on port 6801 ONLY (foreground for stability)
 echo "🚀 Starting Aria2 on port 6801..."
+# Use exec to replace the shell process with aria2c, allowing better signal handling.
+# However, since you want to run the python script afterward, we keep '&' and put a long sleep.
 aria2c \
     --enable-rpc \
     --rpc-listen-all=true \
@@ -36,8 +46,13 @@ if curl -s -f -X POST -d '{"jsonrpc":"2.0","id":"test","method":"aria2.getVersio
     echo "✅ Aria2 READY!"
     python bot.py
 else
-    echo "❌ Aria2 FAILED. Manual test:"
-    echo "curl -X POST -d '{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"params\":[\"token:gjxdml\"]}' http://localhost:6801/jsonrpc"
-    tail -20 aria2.log
+    echo "❌ Aria2 FAILED. Check logs for details."
+    echo "Manual test command: curl -X POST -d '{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"params\":[\"token:gjxdml\"]}' http://localhost:6801/jsonrpc"
+    # Added conditional check for log file existence
+    if [ -f "aria2.log" ]; then
+        tail -20 aria2.log
+    else
+        echo "Aria2 log file (aria2.log) was not created."
+    fi
     exit 1
 fi
