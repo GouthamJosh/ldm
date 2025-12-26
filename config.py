@@ -21,7 +21,7 @@ ARIA2_SECRET = get_env_variable("ARIA2_SECRET", "gjdl")
 # =================
 # Bot Operational Settings
 # =================
-DOWNLOAD_DIR = get_env_variable("DOWNLOAD_DIR", "./downloads")
+DOWNLOAD_DIR = get_env_variable("DOWNLOAD_DIR", "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 SESSION_NAME = get_env_variable("SESSION_NAME", "ariadl")
 
