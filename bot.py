@@ -8,8 +8,12 @@ import aria2p
 from pyrogram import Client
 
 # --- Modular Imports ---
+# 1. IMPORT CONFIGURATION FILE
+import config 
 from plugins.commands import register_handlers
+
 try:
+    # We assume 'plugins.weblive' handles its own imports (like uvicorn/starlette)
     from plugins.weblive import start_web_server_thread
     UVICORN_AVAILABLE = True
 except ImportError:
@@ -17,28 +21,28 @@ except ImportError:
     UVICORN_AVAILABLE = False
 # -----------------------
 
-# ================= CONFIG =================
-API_ID = int(os.getenv("API_ID", "18979569"))
-API_HASH = os.getenv("API_HASH", "45db354387b8122bdf6c1b0beef93743")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8559651884:AAEUeSpqxunq9BE6I7cvw8ced7J0Oh3jk34")
+# ================= CONFIGURATION & SETUP =================
 
-DOWNLOAD_DIR = os.path.abspath("downloads")
-ARIA2_PORT = 6801
-HEALTH_PORT = int(os.getenv("PORT", 8000))
-ARIA2_SECRET = "gjxdml"
+# Use the imported configuration variables
+DOWNLOAD_DIR = config.DOWNLOAD_DIR
+ARIA2_PORT = config.ARIA2_PORT
+ARIA2_SECRET = config.ARIA2_SECRET
+HEALTH_PORT = config.HEALTH_PORT # Assuming you added HEALTH_PORT to config.py
 
-# ================= CLEANUP =================
 def cleanup():
+    """Removes and recreates the download directory on startup."""
     if os.path.exists(DOWNLOAD_DIR):
+        print(f"Cleaning up old downloads directory: {DOWNLOAD_DIR}")
         shutil.rmtree(DOWNLOAD_DIR)
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 cleanup()
 
-# ================= ARIA2 =================
+# ================= ARIA2 CLIENT =================
+print("Setting up Aria2 RPC client...")
 aria2 = aria2p.API(
     aria2p.Client(
-        host="http://localhost",
+        host=config.ARIA2_HOST, # Use host from config
         port=ARIA2_PORT,
         secret=ARIA2_SECRET
     )
@@ -68,26 +72,30 @@ def time_tracker():
 # Start the time tracking thread
 threading.Thread(target=time_tracker, daemon=True).start()
 
-# ================= BOT CLIENT =================
+# ================= PYROGRAM BOT CLIENT =================
 app = Client(
-    "aria2-leech-bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
+    config.SESSION_NAME, # Use SESSION_NAME from config
+    api_id=config.API_ID,
+    api_hash=config.API_HASH,
+    bot_token=config.BOT_TOKEN,
     workers=16
 )
 
 # Register handlers from the external module
 register_handlers(app, aria2, GLOBAL_STATE)
 
+# ================= MAIN EXECUTION =================
+
 if __name__ == "__main__":
+    # --- Check Aria2 Connection ---
     try:
         aria2.get_stats()
-        print("✅ Aria2 connected on port 6801!\n")
-    except:
-        print("❌ Aria2 not running! Exiting.\n")
+        print(f"✅ Aria2 connected on {config.ARIA2_HOST}:{ARIA2_PORT}!\n")
+    except Exception as e:
+        print(f"❌ Aria2 not running or configuration failed! Error: {e}")
+        print("Please ensure your Aria2 RPC service is running and accessible.")
         exit(1)
-    
+        
     print("🤖 Bot is starting...\n")
 
     # Store bot start time for uptime calculation
@@ -95,6 +103,8 @@ if __name__ == "__main__":
     
     # Start the Uvicorn/Starlette health check in a separate thread
     if UVICORN_AVAILABLE:
+        print(f"🌐 Starting web server for health check on port {HEALTH_PORT}...")
         start_web_server_thread(HEALTH_PORT)
     
+    # Start the bot
     app.run()
