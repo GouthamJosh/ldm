@@ -7,7 +7,7 @@ import subprocess
 from datetime import timedelta
 
 from pyrogram import Client, filters, enums
-from pyrogram.types import Message
+from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
 
 # ================= Global State and Helpers (Placeholders to be set by bot.py) =================
@@ -70,11 +70,11 @@ async def edit_message_async(msg, content, parse_mode, max_retries=3):
             return None
     return None
 
-async def reply_message_async(m, text, parse_mode=None, max_retries=3):
+async def reply_message_async(m, text, parse_mode=None, max_retries=3, reply_markup=None):
     retries = 0
     while retries < max_retries:
         try:
-            return await m.reply(text, parse_mode=parse_mode)
+            return await m.reply(text, parse_mode=parse_mode, reply_markup=reply_markup)
         except FloodWait as e:
             await asyncio.sleep(e.value)
             retries += 1
@@ -153,6 +153,72 @@ async def upload_file(app, msg, file_path, name, file_size, loop, gid, download_
         if os.path.exists(file_path):
             await asyncio.to_thread(os.remove, file_path)
 
+# --- Status Functions ---
+
+def get_status_keyboard():
+    """Returns an inline keyboard with a Refresh button."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔄 Refresh Status", callback_data="status_refresh")
+        ]
+    ])
+
+def get_all_active_status(app):
+    status_lines = []
+    
+    # Calculate Total Uptime
+    uptime_sec = time.time() - app.start_time
+    uptime_str = time_fmt(uptime_sec)
+    
+    # Summary Header
+    status_lines.append("🚀 **Active Transfer Status**")
+    status_lines.append("----------------------------")
+    
+    # System & Bot Stats
+    active_download = GLOBAL_STATE["DOWNLOAD_COUNT"]
+    active_upload = GLOBAL_STATE["UPLOAD_COUNT"]
+    
+    status_lines.append(f"🟢 **Bot Uptime**: {uptime_str}")
+    status_lines.append(f"⬇️ **Active DLs**: {active_download} | ⬆️ **Active ULs**: {active_upload}")
+    status_lines.append("----------------------------")
+
+    if not GLOBAL_STATE["ACTIVE"]:
+        status_lines.append("✅ No active downloads or uploads at this time.")
+        return "\n".join(status_lines)
+
+    # Detailed Task List
+    for gid, task_info in GLOBAL_STATE["ACTIVE"].items():
+        is_upload = "file_path" in task_info
+        
+        if is_upload:
+            name = task_info.get("name", "Unknown Upload")
+            status_lines.append(f"⬆️ **UL** - **{name}**")
+            status_lines.append(f"  Status: Uploading | /cancel_{gid}")
+            
+        else:
+            try:
+                # Aria2 Download (Fetch fresh data)
+                dl = ARIA2_API.get_download(gid)
+                
+                if dl.is_complete or dl.is_removed or dl.has_failed:
+                    continue 
+
+                done = dl.completed_length
+                total = dl.total_length
+                speed = dl.download_speed
+                
+                progress_output = progress_bar(done, total, size=15)
+                
+                status_lines.append(f"⬇️ **DL** - **{dl.name}**")
+                status_lines.append(f"  {progress_output} {format_size(done)}/{format_size(total)}")
+                status_lines.append(f"  Speed: {format_speed(speed)} | /cancel_{gid}")
+                
+            except Exception:
+                status_lines.append(f"⚠️ **DL** - GID `{gid}` (Status Update Failed)")
+    
+    return "\n".join(status_lines)
+
+
 # ================= COMMAND HANDLERS =================
 
 async def start_handler(_, m):
@@ -163,11 +229,9 @@ async def start_handler(_, m):
         "I am a fast Aria2 Leech Bot designed to download files directly from URLs and upload them to Telegram.\n\n"
         "**📚 How to Use Me:**\n"
         "┠ To start a download: `/l <Direct_URL>`\n"
-        "┠ To check my status: `/stats`\n"
-        "┠ To cancel an active task (DL or UL): `/cancel<index>_<gid>`\n\n"
-        "**ℹ️ Supported URLs:**\n"
-        "┖ Direct file links (HTTP/HTTPS) and Torrent files.\n\n"
-        "🚀 Happy Leeching!"
+        "┠ To check my status: `/status`\n"
+        "┠ To view system stats: `/stats`\n"
+        "┖ To cancel an active task (DL or UL): `/cancel<index>_<gid>`\n"
     )
     await reply_message_async(m, start_message, parse_mode=PARSE_MODE)
 
@@ -285,20 +349,16 @@ async def cancel_handler(_, m: Message):
             # --- DOWNLOAD CANCELLATION (Enhanced cleanup logic) ---
             file_path_to_delete = None
             try:
-                # 1. Get the download object and path before attempting removal
                 dl = await asyncio.to_thread(ARIA2_API.get_download, task_id)
                 
                 if dl and dl.files and dl.files[0] and dl.files[0].path:
                     file_path_to_delete = dl.files[0].path
 
-                # 2. Attempt Aria2 removal (should clean up files)
                 await asyncio.to_thread(ARIA2_API.remove, [dl], force=True)
                 
             except Exception as e:
-                # Ignore errors from Aria2 API if the download was already stopped/removed.
                 print(f"Aria2 remove failed for GID {task_id}: {e}")
             
-            # 3. Explicitly clean up any remaining files if removal failed
             if file_path_to_delete:
                 # Fix: Convert PosixPath to string before concatenation
                 main_file_path = str(file_path_to_delete)
@@ -316,6 +376,28 @@ async def cancel_handler(_, m: Message):
             
     else:
         await reply_message_async(m, f"Task ID **{task_id}** not found or already complete.", parse_mode=enums.ParseMode.MARKDOWN)
+
+
+async def status_handler(app, m: Message):
+    """Handles the /status command, showing all active tasks."""
+    status_text = await asyncio.to_thread(get_all_active_status, app)
+    keyboard = get_status_keyboard()
+    await reply_message_async(m, status_text, parse_mode=enums.ParseMode.MARKDOWN, reply_markup=keyboard)
+
+
+async def status_callback_handler(app, cq: CallbackQuery):
+    """Handles the callback query from the Refresh button."""
+    if cq.data == "status_refresh":
+        new_status_text = await asyncio.to_thread(get_all_active_status, app)
+        keyboard = get_status_keyboard()
+        
+        try:
+            await cq.edit_message_text(new_status_text, parse_mode=enums.ParseMode.MARKDOWN, reply_markup=keyboard)
+            await cq.answer("Status refreshed successfully!")
+        except FloodWait as e:
+            await cq.answer(f"Flood control: Try again in {e.value}s.", show_alert=True)
+        except Exception:
+            await cq.answer("Status message could not be refreshed (too old or unchanged).", show_alert=False)
 
 
 async def stats_handler(app, m: Message):
@@ -395,15 +477,20 @@ def register_handlers(app, aria2_api, state_vars):
     ARIA2_API = aria2_api
     GLOBAL_STATE = state_vars
     
-    # --- Handlers that only need the default args (client, message) ---
+    # --- Handlers that only need the default args (client, message/callback) ---
     app.on_message(filters.command("start"))(start_handler)
     app.on_message(filters.regex(r"^/cancel"))(cancel_handler)
+    app.on_callback_query()(status_callback_handler) 
     
     # --- Handlers that are defined to take (app, message) args (using wrappers) ---
     
     @app.on_message(filters.command(["l", "leech"]))
     async def leech_wrapper(client, message):
         await leech_handler(client, message)
+
+    @app.on_message(filters.command("status"))
+    async def status_wrapper(client, message):
+        await status_handler(client, message)
 
     @app.on_message(filters.command("stats"))
     async def stats_wrapper(client, message):
