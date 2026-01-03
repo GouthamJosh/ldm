@@ -1,54 +1,50 @@
 # plugins/weblive.py
 
 import threading
-import uvicorn
-from starlette.applications import Starlette
-from starlette.responses import PlainTextResponse
-from starlette.routing import Route
+import asyncio
+from aiohttp import web
 
-# --- Configuration (Must match bot.py or be passed in) ---
-# NOTE: We'll assume HEALTH_PORT is passed or configured centrally.
-# For simplicity, we'll use a default that can be overridden by bot.py
+# --- Configuration ---
 DEFAULT_HEALTH_PORT = 8000
 
-# --- Starlette Setup ---
 
-async def health_endpoint(request):
-    """Simple Starlette endpoint for the health check."""
-    return PlainTextResponse("OK")
+# =========================================================
+# AIOHTTP HEALTH SERVER
+# =========================================================
 
-# Starlette routes
-routes = [
-    Route("/health", endpoint=health_endpoint)
-]
+async def health_handler(request):
+    """Simple health check endpoint."""
+    return web.Response(text="OK")
 
-# Starlette application
-health_app = Starlette(routes=routes)
 
-# --- Uvicorn Starter Function ---
+async def aiohttp_server(port):
+    app = web.Application()
+    app.router.add_get("/health", health_handler)
 
-def run_web_server(port=DEFAULT_HEALTH_PORT):
-    """
-    Function to run uvicorn in a blocking manner.
-    Should be run in a separate thread.
-    """
-    try:
-        uvicorn.run(
-            health_app,
-            host="0.0.0.0",
-            port=port,
-            log_level="error"  # Keep uvicorn output quiet
-        )
-    except Exception as e:
-        print(f"❌ Uvicorn web server failed to start on port {port}: {e}")
+    runner = web.AppRunner(app)
+    await runner.setup()
 
-# --- Threading Function ---
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
-def start_web_server_thread(port):
-    """Starts the Uvicorn server in a daemon thread."""
-    
-    # Start the Uvicorn/Starlette health check in a separate thread
-    web_thread = threading.Thread(target=run_web_server, args=(port,), daemon=True)
+    print(f"🌐 Health check running on port {port} (aiohttp)")
+
+    # Keep server alive forever
+    while True:
+        await asyncio.sleep(3600)
+
+
+# =========================================================
+# THREAD STARTER
+# =========================================================
+
+def start_web_server_thread(port=DEFAULT_HEALTH_PORT):
+    """Start aiohttp server in a daemon thread."""
+
+    def _run():
+        asyncio.run(aiohttp_server(port))
+
+    web_thread = threading.Thread(target=_run, daemon=True)
     web_thread.start()
-    print(f"🌐 Health check running on port {port} (Uvicorn/Starlette)\n")
+
     return web_thread
