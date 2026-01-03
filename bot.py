@@ -11,10 +11,10 @@ from pyrogram import Client
 from plugins.commands import register_handlers
 try:
     from plugins.weblive import start_web_server_thread
-    UVICORN_AVAILABLE = True
 except ImportError:
     print("WARNING: Could not import web server module 'plugins.weblive'. Health check will not run.")
-    UVICORN_AVAILABLE = False
+
+PORT = int(os.environ.get("PORT", 8000))
 # -----------------------
 
 # ================= CONFIG =================
@@ -93,8 +93,6 @@ if __name__ == "__main__":
     # Store bot start time for uptime calculation
     app.start_time = time.time()
     
-    # Start the Uvicorn/Starlette health check in a separate thread
-    if UVICORN_AVAILABLE:
-        start_web_server_thread(HEALTH_PORT)
+    start_web_server_thread(PORT)
     
     app.run()
