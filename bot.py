@@ -19,7 +19,7 @@ except ImportError:
 # ================= CONFIG =================
 API_ID = int(os.getenv("API_ID", "18979569"))
 API_HASH = os.getenv("API_HASH", "45db354387b8122bdf6c1b0beef93743")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8559651884:AAEUeSpqxunq9BE6I7cvw8ced7J0Oh3jk34")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8559651884:AAEHpaEYKfZn_TWiJ9lEpxfgSRr8eh78jsY")
 
 PORT = int(os.environ.get("PORT", 8000))
 
