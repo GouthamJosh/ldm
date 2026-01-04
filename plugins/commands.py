@@ -19,17 +19,19 @@ MAX_CONCURRENT_UPLOADS = 3 # <-- NEW: Maximum number of files to upload at the s
 # --- Helper Functions ---
 
 def progress_bar(done, total, size=12):
-    FILLED = "⬢" 
-    EMPTY = "⬡"
-    if total == 0:
-        return f"[{EMPTY * size}] 0.00%"
-    percent = min(100.0, (done / total) * 100)
-    filled_count = int(percent / 100 * size)
-    if percent > 0 and filled_count == 0 and size > 0: filled_count = 1
-    if filled_count > size: filled_count = size
-    empty_count = size - filled_count
-    bar = FILLED * filled_count + EMPTY * empty_count
-    return f"[{bar}] {percent:.2f}%"
+    FILLED = "⬢"
+    EMPTY = "⬡"
+    if total == 0:
+        return f"[{EMPTY * size}] 0.00%"
+    percent = min(100.0, (done / total) * 100)
+    filled_count = int(percent / 100 * size)
+    if percent > 0 and filled_count == 0 and size > 0:
+        filled_count = 1
+    if filled_count > size:
+        filled_count = size
+    empty_count = size - filled_count
+    bar = FILLED * filled_count + EMPTY * empty_count
+    return f"[{bar}] {percent:.2f}%"
 
 def time_fmt(sec):
     if not isinstance(sec, (int, float)): sec = 0
