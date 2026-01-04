@@ -1,13 +1,15 @@
 # bot.py
 
-import os
 import time
 import threading
 import shutil
 import aria2p
 from pyrogram import Client
 
-# --- Modular Imports ---
+# ================= CONFIG IMPORT =================
+import config
+
+# ================= MODULAR IMPORTS =================
 from plugins.commands import register_handlers
 
 try:
@@ -16,31 +18,20 @@ except ImportError:
     start_web_server_thread = None
     print("⚠️ Web health server disabled (weblive not found)")
 
-# ================= CONFIG =================
-API_ID = int(os.getenv("API_ID", "18979569"))
-API_HASH = os.getenv("API_HASH", "45db354387b8122bdf6c1b0beef93743")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8559651884:AAEHpaEYKfZn_TWiJ9lEpxfgSRr8eh78jsY")
-
-PORT = int(os.environ.get("PORT", 8000))
-
-DOWNLOAD_DIR = os.path.abspath("downloads")
-ARIA2_PORT = 6801
-ARIA2_SECRET = "gjxdml"
-
 # ================= CLEANUP =================
 def cleanup():
-    if os.path.exists(DOWNLOAD_DIR):
-        shutil.rmtree(DOWNLOAD_DIR)
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    if os.path.exists(config.DOWNLOAD_DIR):
+        shutil.rmtree(config.DOWNLOAD_DIR)
+    os.makedirs(config.DOWNLOAD_DIR, exist_ok=True)
 
 cleanup()
 
 # ================= ARIA2 =================
 aria2 = aria2p.API(
     aria2p.Client(
-        host="http://localhost",
-        port=ARIA2_PORT,
-        secret=ARIA2_SECRET
+        host=config.ARIA2_HOST,
+        port=config.ARIA2_PORT,
+        secret=config.ARIA2_SECRET
     )
 )
 
@@ -52,7 +43,7 @@ GLOBAL_STATE = {
     "TOTAL_DOWNLOAD_TIME": 0,
     "TOTAL_UPLOAD_TIME": 0,
     "DOWNLOAD_COUNTER": 1,
-    "DOWNLOAD_DIR": DOWNLOAD_DIR,
+    "DOWNLOAD_DIR": config.DOWNLOAD_DIR,
 }
 
 def time_tracker():
@@ -67,10 +58,10 @@ threading.Thread(target=time_tracker, daemon=True).start()
 
 # ================= BOT CLIENT =================
 app = Client(
-    "aria2-leech-bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
+    config.SESSION_NAME,
+    api_id=config.API_ID,
+    api_hash=config.API_HASH,
+    bot_token=config.BOT_TOKEN,
     workers=16
 )
 
@@ -89,6 +80,6 @@ if __name__ == "__main__":
     app.start_time = time.time()
 
     if start_web_server_thread:
-        start_web_server_thread(PORT)
+        start_web_server_thread(config.HEALTH_PORT)
 
     app.run()
