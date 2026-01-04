@@ -130,40 +130,69 @@ def upload_progress(current, total, gid, start_time, name, parse_mode, loop, dow
 
 # --- Upload Handler (Runs in the main event loop) ---
 
-async def upload_file(app, msg, file_path, name, file_size, loop, gid, download_index, user_first, user_id):
-    GLOBAL_STATE["ACTIVE"][gid]["status"] = "QUEUED" # <-- NEW: Set initial status as Queued
+async def upload_file(
+    app,
+    msg,
+    file_path,
+    name,
+    file_size,
+    loop,
+    gid,
+    download_index,
+    user_first,
+    user_id
+):
+    # Initial state
+    GLOBAL_STATE["ACTIVE"][gid]["status"] = "QUEUED"
 
-    # Use the semaphore to limit concurrent uploads (this line waits if MAX_CONCURRENT_UPLOADS is reached)
+    # Limit concurrent uploads
     async with GLOBAL_STATE["UPLOAD_SEMAPHORE"]:
-        
-        # Once semaphore is acquired, update status and counters
-        GLOBAL_STATE["ACTIVE"][gid]["status"] = "UPLOADING" # <-- NEW: Set status to Uploading
+
+        GLOBAL_STATE["ACTIVE"][gid]["status"] = "UPLOADING"
         GLOBAL_STATE["UPLOAD_COUNT"] += 1
+
         try:
             await app.send_document(
-                msg.chat.id, 
+                msg.chat.id,
                 file_path,
                 caption=f"✅ **{name}**\nSize: {format_size(file_size)}",
-                progress=upload_progress, 
-                progress_args=(gid, time.time(), name, enums.ParseMode.MARKDOWN, loop, download_index, user_first, user_id)
+                progress=upload_progress,
+                progress_args=(
+                    gid,
+                    time.time(),
+                    name,
+                    enums.ParseMode.MARKDOWN,
+                    loop,
+                    download_index,
+                    user_first,
+                    user_id
+                )
             )
-            await edit_message_async(msg, f"✅ Upload complete for **{name}**!", parse_mode=enums.ParseMode.MARKDOWN)
-        
+
+            await edit_message_async(
+                msg,
+                f"✅ Upload complete for **{name}**!",
+                parse_mode=enums.ParseMode.MARKDOWN
+            )
+
         except Exception as e:
-            cancellation_message = "Upload manually cancelled by user."
-            
-            if cancellation_message in str(e):
-                print(f"Upload GID {gid} was gracefully cancelled.")
-            
+            if "Upload manually cancelled by user." in str(e):
+                print(f"Upload GID {gid} cancelled by user.")
+
             elif not GLOBAL_STATE["ACTIVE"].get(gid, {}).get("cancel", False):
-                print(f"❌ Upload GID {gid} failed unexpectedly: {e}")
-                await edit_message_async(msg, f"❌ Upload failed: {str(e)}", parse_mode=None)
-    
-    finally:
-        GLOBAL_STATE["UPLOAD_COUNT"] -= 1
-        GLOBAL_STATE["ACTIVE"].pop(gid, None) 
-        if os.path.exists(file_path):
-            await asyncio.to_thread(os.remove, file_path)
+                print(f"❌ Upload GID {gid} failed: {e}")
+                await edit_message_async(
+                    msg,
+                    f"❌ Upload failed: {e}",
+                    parse_mode=None
+                )
+
+        finally:
+            GLOBAL_STATE["UPLOAD_COUNT"] -= 1
+            GLOBAL_STATE["ACTIVE"].pop(gid, None)
+
+            if os.path.exists(file_path):
+                await asyncio.to_thread(os.remove, file_path)
 
 # ================= STATUS FUNCTIONS =================
 
