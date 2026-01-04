@@ -19,8 +19,8 @@ MAX_CONCURRENT_UPLOADS = 3 # <-- NEW: Maximum number of files to upload at the s
 # --- Helper Functions ---
 
 def progress_bar(done, total, size=12):
-    FILLED = "■" 
-    EMPTY = "□"
+    FILLED = "⬢" 
+    EMPTY = "⬡"
     if total == 0:
         return f"[{EMPTY * size}] 0.00%"
     percent = min(100.0, (done / total) * 100)
