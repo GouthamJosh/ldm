@@ -97,44 +97,53 @@ async def reply_message_async(m, text, parse_mode=None, max_retries=3, reply_mar
 
 # --- Upload Progress Function (Runs in a separate thread) ---
 
-def upload_progress(current, total, gid, start_time, name, parse_mode, loop, download_index, user_first, user_id):
-    # Note: This progress function is only called when the file is actively uploading (inside the semaphore block)
+def upload_progress(
+    current,
+    total,
+    upload_id,
+    start_time,
+    name,
+    parse_mode,
+    loop,
+    download_index,
+    user_first,
+    user_id
+):
     if total == 0:
         return
-    
-    if GLOBAL_STATE["ACTIVE"].get(gid, {}).get("cancel", False):
-        raise Exception("Upload manually cancelled by user.")
-    
-    current_time = time.time()
-    if current_time - GLOBAL_STATE["ACTIVE"].get(gid, {}).get("last_edit", 0) < 3:
+
+    state = GLOBAL_STATE["ACTIVE"].get(upload_id)
+    if not state:
         return
-    
-    elapsed = time.time() - start_time
+
+    if state.get("cancel", False):
+        raise Exception("Upload manually cancelled by user.")
+
+    current_time = time.time()
+    if current_time - state.get("last_edit", 0) < 3:
+        return
+
+    elapsed = current_time - start_time
     speed = current / elapsed if elapsed > 0 else 0
     eta = (total - current) / speed if speed > 0 else 0
-    eta_str = time_fmt(eta)
-    elapsed_str = time_fmt(elapsed)
-    progress_bar_output = progress_bar(current, total)
-    
+
     new_content = (
         f"{download_index}. {name}\n"
-        f"┃ {progress_bar_output}\n"
+        f"┃ {progress_bar(current, total)}\n"
         f"┠ Processed: {format_size(current)} of {format_size(total)}\n"
-        f"┠ Status: Upload | ETA: {eta_str}\n"
-        f"┠ Speed: {format_speed(speed)} | Elapsed: {elapsed_str}\n"
+        f"┠ Status: Upload | ETA: {time_fmt(eta)}\n"
+        f"┠ Speed: {format_speed(speed)} | Elapsed: {time_fmt(elapsed)}\n"
         f"┠ Engine: Pyrogram v2\n"
         f"┠ Mode: #Leech | #qBit\n"
         f"┠ User: {user_first} | ID: {user_id}\n"
-        f"┖ /cancel{download_index}_{gid}"
+        f"┖ /cancel{download_index}_{upload_id}"
     )
-    
-    msg = GLOBAL_STATE["ACTIVE"][upload_id]["msg"]
-    try:
-        coro = edit_message_async(msg, new_content, parse_mode)
-        asyncio.run_coroutine_threadsafe(coro, loop)
-        GLOBAL_STATE["ACTIVE"][gid]["last_edit"] = current_time
-    except:
-        pass
+
+    msg = state["msg"]
+    coro = edit_message_async(msg, new_content, parse_mode)
+    asyncio.run_coroutine_threadsafe(coro, loop)
+    state["last_edit"] = current_time
+
 
 # --- Upload Handler (Runs in the main event loop) ---
 
@@ -150,7 +159,7 @@ async def upload_file(
     user_first,
     user_id
 ):
-    upload_id = f"ul_{gid}_{int(time.time()*1000)}"
+    upload_id = f"ul_{gid}_{int(time.time() * 1000)}"
 
     upload_msg = await base_msg.reply(
         f"⏫ Uploading **{name}**",
@@ -159,15 +168,15 @@ async def upload_file(
 
     GLOBAL_STATE["ACTIVE"][upload_id] = {
         "cancel": False,
-        "file_path": file_path,
-        "name": name,
         "msg": upload_msg,
         "last_edit": 0,
-        "status": "UPLOADING"
+        "status": "QUEUED"
     }
 
     async with GLOBAL_STATE["UPLOAD_SEMAPHORE"]:
+        GLOBAL_STATE["ACTIVE"][upload_id]["status"] = "UPLOADING"
         GLOBAL_STATE["UPLOAD_COUNT"] += 1
+
         try:
             await app.send_document(
                 chat_id=upload_msg.chat.id,
@@ -188,6 +197,7 @@ async def upload_file(
         finally:
             GLOBAL_STATE["UPLOAD_COUNT"] -= 1
             GLOBAL_STATE["ACTIVE"].pop(upload_id, None)
+
             if os.path.exists(file_path):
                 await asyncio.to_thread(os.remove, file_path)
 
