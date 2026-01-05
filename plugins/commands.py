@@ -14,7 +14,7 @@ from pyrogram.errors import FloodWait
 # ================= Global State and Helpers (Placeholders to be set by bot.py) =================
 GLOBAL_STATE = {}
 ARIA2_API = None
-MAX_CONCURRENT_UPLOADS = 3 # <-- NEW: Maximum number of files to upload at the same time
+MAX_CONCURRENT_UPLOADS = 3  # <-- NEW: Maximum number of files to upload at the same time
 
 # --- Helper Functions ---
 
@@ -34,15 +34,20 @@ def progress_bar(done, total, size=12):
     return f"[{bar}] {percent:.2f}%"
 
 def time_fmt(sec):
-    if not isinstance(sec, (int, float)): sec = 0
+    if not isinstance(sec, (int, float)):
+        sec = 0
     m, s = divmod(int(sec), 60)
     h, m = divmod(m, 60)
-    if h > 0: return f"{h}h{m}m{s}s"
-    elif m > 0: return f"{m}m{s}s"
-    else: return f"{s}s"
+    if h > 0:
+        return f"{h}h{m}m{s}s"
+    elif m > 0:
+        return f"{m}m{s}s"
+    else:
+        return f"{s}s"
 
 def format_speed(bps):
-    if bps == 0: return "0B/s"
+    if bps == 0:
+        return "0B/s"
     units = ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s', 'PB/s']
     unit = 0
     while bps >= 1024 and unit < len(units) - 1:
@@ -50,8 +55,9 @@ def format_speed(bps):
         unit += 1
     return f"{bps:.1f}{units[unit]}"
 
-def format_size(b): 
-    if b == 0: return "0B"
+def format_size(b):
+    if b == 0:
+        return "0B"
     units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
     unit = 0
     while b >= 1024 and unit < len(units) - 1:
@@ -63,7 +69,8 @@ def format_size(b):
 
 async def edit_message_async(msg, content, parse_mode, max_retries=3, reply_markup=None):
     # Added reply_markup argument for status handler
-    if msg.text == content and not reply_markup: return None
+    if msg.text == content and not reply_markup:
+        return None
     retries = 0
     while retries < max_retries:
         try:
@@ -92,7 +99,8 @@ async def reply_message_async(m, text, parse_mode=None, max_retries=3, reply_mar
 
 def upload_progress(current, total, gid, start_time, name, parse_mode, loop, download_index, user_first, user_id):
     # Note: This progress function is only called when the file is actively uploading (inside the semaphore block)
-    if total == 0: return
+    if total == 0:
+        return
     
     if GLOBAL_STATE["ACTIVE"].get(gid, {}).get("cancel", False):
         raise Exception("Upload manually cancelled by user.")
@@ -233,7 +241,7 @@ def get_all_active_status(app):
         
         if is_upload:
             name = task_info.get("name", "Unknown Upload")
-            current_status = task_info.get("status", "UPLOADING") # <-- NEW: Get current state
+            current_status = task_info.get("status", "UPLOADING")  # <-- NEW: Get current state
             
             status_emoji = "⬆️" if current_status == "UPLOADING" else "⏳"
             
@@ -263,7 +271,6 @@ def get_all_active_status(app):
     
     return "\n".join(status_lines)
 
-
 # ================= COMMAND HANDLERS =================
 
 async def start_handler(_, m):
@@ -274,7 +281,7 @@ async def start_handler(_, m):
         "I am a fast Aria2 Leech Bot designed to download files directly from URLs and upload them to Telegram.\n\n"
         "**📚 How to Use Me:**\n"
         "┠ To start a download: `/l <Direct_URL>`\n"
-        "┠ To check active transfers: `/status`\n" # Updated instructions
+        "┠ To check active transfers: `/status`\n"  # Updated instructions
         "┠ To view system stats: `/stats`\n"
         "┖ To cancel an active task (DL or UL): `/cancel<index>_<gid>`\n\n"
         "**ℹ️ Supported URLs:**\n"
@@ -343,7 +350,8 @@ async def leech_handler(app, m: Message):
                     f"┖ /cancel{download_index}_{gid}", 
                     parse_mode=None
                 )
-            except Exception: pass
+            except Exception:
+                pass
 
         await asyncio.sleep(3)
 
@@ -357,7 +365,8 @@ async def leech_handler(app, m: Message):
         
         try:
             file_size = os.path.getsize(file_path)
-            if file_size == 0: raise ValueError("File empty")
+            if file_size == 0:
+                raise ValueError("File empty")
         except:
             return await edit_message_async(msg, "❌ File corrupted or empty.", parse_mode=None)
         
@@ -373,7 +382,7 @@ async def leech_handler(app, m: Message):
             "name": dl.name, 
             "last_edit": 0, 
             "msg": msg,
-            "status": "QUEUED" # <-- NEW: Set initial status as Queued
+            "status": "QUEUED"  # <-- NEW: Set initial status as Queued
         } 
         
         loop = asyncio.get_running_loop()
@@ -433,14 +442,27 @@ async def cancel_handler(_, m: Message):
     else:
         await reply_message_async(m, f"Task ID **{task_id}** not found or already complete.", parse_mode=enums.ParseMode.MARKDOWN)
 
-
 async def status_handler(app, m: Message):
     """Handles the /status command, showing all active tasks."""
     status_text = await asyncio.to_thread(get_all_active_status, app)
     keyboard = get_status_keyboard()
     await reply_message_async(m, status_text, parse_mode=enums.ParseMode.MARKDOWN, reply_markup=keyboard)
 
-
+async def status_callback_handler(app, cq: CallbackQuery):
+    """Handles the callback query from the Refresh button."""
+    if cq.data == "status_refresh":
+        new_status_text = await asyncio.to_thread(get_all_active_status, app)
+        keyboard = get_status_keyboard()
+        
+        try:
+            # Use edit_message_text for callback query to update the existing message
+            await cq.edit_message_text(new_status_text, parse_mode=enums.ParseMode.MARKDOWN, reply_markup=keyboard)
+            await cq.answer("Status refreshed successfully!")
+        except FloodWait as e:
+            await cq.answer(f"Flood control: Try again in {e.value}s.", show_alert=True)
+        except Exception:
+            # This handles cases where the message is too old or the text hasn't changed.
+            await cq.answer("Status message could not be refreshed (too old or unchanged).", show_alert=False)
 async def status_callback_handler(app, cq: CallbackQuery):
     """Handles the callback query from the Refresh button."""
     if cq.data == "status_refresh":
@@ -470,14 +492,16 @@ async def stats_handler(app, m: Message):
         cpu_result = subprocess.run(["sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'"], capture_output=True, text=True, timeout=5, check=True)
         if cpu_result.returncode == 0:
             cpu_percent = f"{float(cpu_result.stdout.strip()):.1f}%"
-    except Exception: pass
+    except Exception:
+        pass
 
     # Get RAM Usage
     try:
         ram_result = subprocess.run(["sh", "-c", "free -m | awk 'NR==2{printf \"%.1f%%\", $3*100/$2 }'"], capture_output=True, text=True, timeout=5, check=True)
         if ram_result.returncode == 0:
             ram_usage = ram_result.stdout.strip()
-    except Exception: pass
+    except Exception:
+        pass
 
     # Get Disk Usage
     try:
@@ -489,7 +513,8 @@ async def stats_handler(app, m: Message):
                 if len(df_data) >= 3:
                     total_disk, free_disk, disk_percent = df_data[0], df_data[1], df_data[2]
                     disk_info = f"F: {free_disk} | T: {total_disk} [{disk_percent}]"
-    except Exception: pass
+    except Exception:
+        pass
 
     # ================= 2. Bot State and Time =================
 
@@ -541,7 +566,7 @@ def register_handlers(app, aria2_api, state_vars):
     # --- Handlers that only need the default args (client, message/callback) ---
     app.on_message(filters.command("start"))(start_handler)
     app.on_message(filters.regex(r"^/cancel"))(cancel_handler)
-    app.on_callback_query()(status_callback_handler) # Register the callback handler
+    app.on_callback_query()(status_callback_handler)  # Register the callback handler
     
     # --- Handlers that are defined to take (app, message) args (using wrappers) ---
     
@@ -549,7 +574,7 @@ def register_handlers(app, aria2_api, state_vars):
     async def leech_wrapper(client, message):
         await leech_handler(client, message)
 
-    @app.on_message(filters.command("status")) # Add /status command
+    @app.on_message(filters.command("status"))  # Add /status command
     async def status_wrapper(client, message):
         await status_handler(client, message)
 
