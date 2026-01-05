@@ -30,7 +30,7 @@ cleanup()
 # ================= ARIA2 =================
 aria2 = aria2p.API(
     aria2p.Client(
-        host=config.ARIA2_HOST,
+        host="http://127.0.0.1",
         port=config.ARIA2_PORT,
         secret=config.ARIA2_SECRET
     )
@@ -73,8 +73,13 @@ if __name__ == "__main__":
     try:
         aria2.get_stats()
         print("✅ Aria2 connected on port 6801!\n")
-    except Exception:
-        print("❌ Aria2 not running! Exiting.\n")
+    except Exception as e:
+        print(f"❌ Aria2 connection failed: {e}")
+        print("🔍 Troubleshooting tips:")
+        print(f"  - Check if Aria2 is running on {config.ARIA2_HOST}:{config.ARIA2_PORT}")
+        print(f"  - Verify ARIA2_SECRET in config.py matches Aria2's --rpc-secret")
+        print("  - If in Docker, ensure proper networking (e.g., use container IP for ARIA2_HOST)")
+        print("  - Test manually: curl -X POST -d '{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"params\":[\"token:{config.ARIA2_SECRET}\"]}' http://{config.ARIA2_HOST}:{config.ARIA2_PORT}/jsonrpc")
         exit(1)
 
     print("🤖 Bot is starting...\n")
