@@ -20,8 +20,6 @@ mkdir -p downloads
 
 # Start Aria2 on port 6801 ONLY (foreground for stability)
 echo "🚀 Starting Aria2 on port 6801..."
-# Use exec to replace the shell process with aria2c, allowing better signal handling.
-# However, since you want to run the python script afterward, we keep '&' and put a long sleep.
 aria2c \
     --enable-rpc \
     --rpc-listen-all=true \
@@ -40,15 +38,15 @@ aria2c \
 
 sleep 8  # Increased slightly for stability
 
-# Test connection with proper POST
-echo "🔍 Testing Aria2 RPC..."
-if curl -s -f -X POST -d '{"jsonrpc":"2.0","id":"test","method":"aria2.getVersion","params":["token:gjxdml"]}' http://localhost:6801/jsonrpc >/dev/null 2>&1; then
+# Test connection with proper POST (using ARIA2_HOST env var, default to localhost)
+ARIA2_HOST=${ARIA2_HOST:-localhost}
+echo "🔍 Testing Aria2 RPC on ${ARIA2_HOST}:6801..."
+if curl -s -f -X POST -d '{"jsonrpc":"2.0","id":"test","method":"aria2.getVersion","params":["token:gjxdml"]}' http://${ARIA2_HOST}:6801/jsonrpc >/dev/null 2>&1; then
     echo "✅ Aria2 READY!"
     python bot.py
 else
-    echo "❌ Aria2 FAILED. Check logs for details."
-    echo "Manual test command: curl -X POST -d '{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"params\":[\"token:gjxdml\"]}' http://localhost:6801/jsonrpc"
-    # Added conditional check for log file existence
+    echo "❌ Aria2 FAILED on ${ARIA2_HOST}:6801. Check logs for details."
+    echo "Manual test command: curl -X POST -d '{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"params\":[\"token:gjxdml\"]}' http://${ARIA2_HOST}:6801/jsonrpc"
     if [ -f "aria2.log" ]; then
         tail -20 aria2.log
     else
