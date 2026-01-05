@@ -16,7 +16,7 @@ OWNER_ID = int(get_env_variable("OWNER_ID", 123456789))
 # =================
 ARIA2_HOST = get_env_variable("ARIA2_HOST", "127.0.0.1")
 ARIA2_PORT = int(get_env_variable("ARIA2_PORT", 6801)) # DONT CHANGEEE !!!!
-ARIA2_SECRET = get_env_variable("ARIA2_SECRET", "gjld")
+ARIA2_SECRET = get_env_variable("ARIA2_SECRET", "gjxdml")
 
 # =================
 # Bot Operational Settings
