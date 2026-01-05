@@ -1,5 +1,6 @@
 # bot.py
 
+import os  # <-- Added missing import for os
 import time
 import threading
 import shutil
