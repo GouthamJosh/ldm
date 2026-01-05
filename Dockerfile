@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 # Install dependencies and build tools
 RUN apt-get update && apt-get install -y \
@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Create a non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser
+
 WORKDIR /app
 
 # Copy and install Python deps
@@ -23,12 +26,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy all files
 COPY . .
 
-# Permissions
+# Set ownership and permissions
 RUN chmod +x start.sh && \
     mkdir -p downloads && \
-    chown -R 1000:1000 downloads
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose ports
 EXPOSE 6801 8000
 
-CMD ["./start.sh"]
+# Use ENTRYPOINT for better signal handling (allows graceful shutdown)
+ENTRYPOINT ["./start.sh"]
