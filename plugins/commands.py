@@ -128,7 +128,7 @@ def upload_progress(current, total, gid, start_time, name, parse_mode, loop, dow
         f"┖ /cancel{download_index}_{gid}"
     )
     
-    msg = GLOBAL_STATE["ACTIVE"][gid]["msg"]
+    msg = GLOBAL_STATE["ACTIVE"][upload_id]["msg"]
     try:
         coro = edit_message_async(msg, new_content, parse_mode)
         asyncio.run_coroutine_threadsafe(coro, loop)
@@ -140,7 +140,7 @@ def upload_progress(current, total, gid, start_time, name, parse_mode, loop, dow
 
 async def upload_file(
     app,
-    msg,
+    base_msg,
     file_path,
     name,
     file_size,
@@ -150,23 +150,32 @@ async def upload_file(
     user_first,
     user_id
 ):
-    # Initial state
-    GLOBAL_STATE["ACTIVE"][gid]["status"] = "QUEUED"
+    upload_id = f"ul_{gid}_{int(time.time()*1000)}"
 
-    # Limit concurrent uploads
+    upload_msg = await base_msg.reply(
+        f"⏫ Uploading **{name}**",
+        parse_mode=enums.ParseMode.MARKDOWN
+    )
+
+    GLOBAL_STATE["ACTIVE"][upload_id] = {
+        "cancel": False,
+        "file_path": file_path,
+        "name": name,
+        "msg": upload_msg,
+        "last_edit": 0,
+        "status": "UPLOADING"
+    }
+
     async with GLOBAL_STATE["UPLOAD_SEMAPHORE"]:
-
-        GLOBAL_STATE["ACTIVE"][gid]["status"] = "UPLOADING"
         GLOBAL_STATE["UPLOAD_COUNT"] += 1
-
         try:
             await app.send_document(
-                msg.chat.id,
-                file_path,
+                chat_id=upload_msg.chat.id,
+                document=file_path,
                 caption=f"✅ **{name}**\nSize: {format_size(file_size)}",
                 progress=upload_progress,
                 progress_args=(
-                    gid,
+                    upload_id,
                     time.time(),
                     name,
                     enums.ParseMode.MARKDOWN,
@@ -176,29 +185,9 @@ async def upload_file(
                     user_id
                 )
             )
-
-            await edit_message_async(
-                msg,
-                f"✅ Upload complete for **{name}**!",
-                parse_mode=enums.ParseMode.MARKDOWN
-            )
-
-        except Exception as e:
-            if "Upload manually cancelled by user." in str(e):
-                print(f"Upload GID {gid} cancelled by user.")
-
-            elif not GLOBAL_STATE["ACTIVE"].get(gid, {}).get("cancel", False):
-                print(f"❌ Upload GID {gid} failed: {e}")
-                await edit_message_async(
-                    msg,
-                    f"❌ Upload failed: {e}",
-                    parse_mode=None
-                )
-
         finally:
             GLOBAL_STATE["UPLOAD_COUNT"] -= 1
-            GLOBAL_STATE["ACTIVE"].pop(gid, None)
-
+            GLOBAL_STATE["ACTIVE"].pop(upload_id, None)
             if os.path.exists(file_path):
                 await asyncio.to_thread(os.remove, file_path)
 
