@@ -537,11 +537,13 @@ async def leech_handler(app, m: Message):
             )
 
             GLOBAL_STATE["ACTIVE"][sub_gid] = {
-                "cancel":    False,
-                "file_path": extracted_path,
-                "name":      extracted_name,
-                "last_edit": 0,
-                "msg":       msg
+                "cancel":      False,
+                "file_path":   extracted_path,
+                "name":        extracted_name,
+                "last_edit":   0,
+                "msg":         msg,
+                "extract_dir": extract_dir,   # so cancel can nuke the whole folder
+                "base_gid":    gid            # so cancel can kill all siblings
             }
 
             await upload_file(
@@ -595,7 +597,11 @@ async def leech_handler(app, m: Message):
 
 async def cancel_handler(_, m: Message):
     text = m.text
-    task_id = text.split("_", 1)[1] if "_" in text else text.replace("/cancel", "")
+    # Strip /cancel<index> prefix — task_id is everything after the FIRST underscore
+    # e.g. /cancel3_abc123       -> task_id = "abc123"
+    # e.g. /cancel3_abc123_ex2   -> task_id = "abc123_ex2"  (extracted upload)
+    raw = text.replace("/cancel", "", 1)           # remove /cancel
+    task_id = raw.split("_", 1)[1] if "_" in raw else raw
 
     if not task_id:
         return await reply_message_async(m, "Invalid cancel command.", parse_mode=None)
@@ -606,10 +612,50 @@ async def cancel_handler(_, m: Message):
         
         if "file_path" in task_info:
             # --- UPLOAD CANCELLATION ---
-            file_path = task_info.get("file_path")
-            if file_path and os.path.exists(file_path):
-                await asyncio.to_thread(os.remove, file_path)
-            await reply_message_async(m, f"🛑 Cancelled Upload **{task_info['name']}**.\nFile deleted.", parse_mode=enums.ParseMode.MARKDOWN)
+            file_path    = task_info.get("file_path")
+            extract_dir  = task_info.get("extract_dir")   # present for extracted uploads
+            base_gid     = task_info.get("base_gid")
+
+            # If this is an extracted-upload task, cancel ALL sibling sub-tasks
+            # and nuke the entire extracted folder to free disk space
+            if extract_dir and base_gid:
+                # Cancel every sibling sub_gid that shares the same base_gid
+                siblings = [k for k in list(GLOBAL_STATE["ACTIVE"].keys())
+                            if k.startswith(f"{base_gid}_ex")]
+                for sib_key in siblings:
+                    sib = GLOBAL_STATE["ACTIVE"].get(sib_key)
+                    if sib:
+                        sib["cancel"] = True
+
+                # Nuke the entire extracted folder
+                extract_dir_str = str(extract_dir)
+                if os.path.exists(extract_dir_str):
+                    try:
+                        await asyncio.to_thread(
+                            subprocess.run,
+                            ["rm", "-rf", extract_dir_str],
+                            capture_output=True, timeout=30
+                        )
+                        print(f"Deleted extract dir: {extract_dir_str}")
+                    except Exception as e:
+                        print(f"Failed to delete extract dir {extract_dir_str}: {e}")
+
+                await reply_message_async(
+                    m,
+                    f"🛑 Cancelled extracted upload **{task_info['name']}**.\n"
+                    "All remaining extracted files and folder deleted.",
+                    parse_mode=enums.ParseMode.MARKDOWN
+                )
+
+            else:
+                # Plain (non-extracted) upload — just delete the single file
+                if file_path and os.path.exists(str(file_path)):
+                    await asyncio.to_thread(os.remove, str(file_path))
+                await reply_message_async(
+                    m,
+                    f"🛑 Cancelled Upload **{task_info['name']}**.\nFile deleted.",
+                    parse_mode=enums.ParseMode.MARKDOWN
+                )
         
         else:
             # --- DOWNLOAD CANCELLATION ---
