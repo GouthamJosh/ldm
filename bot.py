@@ -1,53 +1,63 @@
 # bot.py
 
-import os  # <-- Added missing import for os
+import os
 import time
 import threading
 import shutil
 import aria2p
 from pyrogram import Client
 
-# ================= CONFIG IMPORT =================
-import config
-
-# ================= MODULAR IMPORTS =================
+# --- Modular Imports ---
 from plugins.commands import register_handlers
-
 try:
     from plugins.weblive import start_web_server_thread
+    UVICORN_AVAILABLE = True
 except ImportError:
-    start_web_server_thread = None
-    print("⚠️ Web health server disabled (weblive not found)")
+    print("WARNING: Could not import web server module 'plugins.weblive'. Health check will not run.")
+    UVICORN_AVAILABLE = False
+# -----------------------
+
+# ================= CONFIG =================
+API_ID = int(os.getenv("API_ID", "18979569"))
+API_HASH = os.getenv("API_HASH", "45db354387b8122bdf6c1b0beef93743")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7531165057:AAH3Yrcg2iROtgW8sEX_rmBGYvMy3JhNSEM")
+
+DOWNLOAD_DIR = os.path.abspath("downloads")
+ARIA2_PORT = 6801
+HEALTH_PORT = int(os.getenv("PORT", 8000))
+ARIA2_SECRET = "gjxdml"
 
 # ================= CLEANUP =================
 def cleanup():
-    if os.path.exists(config.DOWNLOAD_DIR):
-        shutil.rmtree(config.DOWNLOAD_DIR)
-    os.makedirs(config.DOWNLOAD_DIR, exist_ok=True)
+    if os.path.exists(DOWNLOAD_DIR):
+        shutil.rmtree(DOWNLOAD_DIR)
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 cleanup()
 
 # ================= ARIA2 =================
 aria2 = aria2p.API(
     aria2p.Client(
-        host="http://127.0.0.1",
-        port=config.ARIA2_PORT,
-        secret=config.ARIA2_SECRET
+        host="http://localhost",
+        port=ARIA2_PORT,
+        secret=ARIA2_SECRET
     )
 )
 
-# ================= GLOBAL STATE =================
+# ================= GLOBAL STATE (Centralized) =================
+# This dictionary will be passed to the command handlers module
 GLOBAL_STATE = {
-    "ACTIVE": {},
+    "ACTIVE": {},  
     "DOWNLOAD_COUNT": 0,
     "UPLOAD_COUNT": 0,
     "TOTAL_DOWNLOAD_TIME": 0,
     "TOTAL_UPLOAD_TIME": 0,
     "DOWNLOAD_COUNTER": 1,
-    "DOWNLOAD_DIR": config.DOWNLOAD_DIR,
+    "DOWNLOAD_DIR": DOWNLOAD_DIR,
 }
 
 def time_tracker():
+    """Increments total time spent downloading or uploading."""
     while True:
         if GLOBAL_STATE["DOWNLOAD_COUNT"] > 0:
             GLOBAL_STATE["TOTAL_DOWNLOAD_TIME"] += 1
@@ -55,37 +65,36 @@ def time_tracker():
             GLOBAL_STATE["TOTAL_UPLOAD_TIME"] += 1
         time.sleep(1)
 
+# Start the time tracking thread
 threading.Thread(target=time_tracker, daemon=True).start()
 
 # ================= BOT CLIENT =================
 app = Client(
-    config.SESSION_NAME,
-    api_id=config.API_ID,
-    api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN,
+    "aria2-leech-bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
     workers=16
 )
 
+# Register handlers from the external module
 register_handlers(app, aria2, GLOBAL_STATE)
 
-# ================= MAIN =================
 if __name__ == "__main__":
     try:
         aria2.get_stats()
         print("✅ Aria2 connected on port 6801!\n")
-    except Exception as e:
-        print(f"❌ Aria2 connection failed: {e}")
-        print("🔍 Troubleshooting tips:")
-        print(f"  - Check if Aria2 is running on {config.ARIA2_HOST}:{config.ARIA2_PORT}")
-        print(f"  - Verify ARIA2_SECRET in config.py matches Aria2's --rpc-secret")
-        print("  - If in Docker, ensure proper networking (e.g., use container IP for ARIA2_HOST)")
-        print("  - Test manually: curl -X POST -d '{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"params\":[\"token:{config.ARIA2_SECRET}\"]}' http://{config.ARIA2_HOST}:{config.ARIA2_PORT}/jsonrpc")
+    except:
+        print("❌ Aria2 not running! Exiting.\n")
         exit(1)
-
+    
     print("🤖 Bot is starting...\n")
+
+    # Store bot start time for uptime calculation
     app.start_time = time.time()
-
-    if start_web_server_thread:
-        start_web_server_thread(config.HEALTH_PORT)
-
+    
+    # Start the Uvicorn/Starlette health check in a separate thread
+    if UVICORN_AVAILABLE:
+        start_web_server_thread(HEALTH_PORT)
+    
     app.run()
