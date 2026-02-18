@@ -1,4 +1,8 @@
 pyrogram
 TgCrypto
 aria2p
+aria2
 aiohttp
+uvicorn
+starlette
+py7zr
